@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <queries>
+        <package android:name="com.xiaomi.bluetooth" />
+    </queries>
+
+    <application android:theme="@style/AppTheme" android:label="耳机弹窗自定义" android:hasCode="true" android:resizeableActivity="true">
+        <meta-data android:name="xposedmodule" android:value="true" />
+        <meta-data android:name="xposeddescription" android:value="HyperOS FastConnect native PairingDialog customizer" />
+        <meta-data android:name="xposedminversion" android:value="93" />
+        <provider
+            android:name=".config.PopupConfigProvider"
+            android:authorities="com.wild0408.headsetpopup.popupconfig"
+            android:exported="true" />
+        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
