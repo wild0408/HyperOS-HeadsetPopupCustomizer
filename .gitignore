@@ -4,6 +4,8 @@ build/
 app/build/
 *.apk
 *.aab
+*.jks
+*.keystore
 *.db
 *.db-shm
 *.db-wal

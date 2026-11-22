@@ -3,8 +3,38 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
-android { namespace 'com.wild0408.headsetpopup'; compileSdk 37
-    defaultConfig { applicationId 'com.wild0408.headsetpopup'; minSdk 28; targetSdk 36; versionCode 10; versionName '2.0.0-hook-foundation' }
+android {
+    namespace 'com.wild0408.headsetpopup'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId 'com.wild0408.headsetpopup'
+        minSdk 28
+        targetSdk 36
+        versionCode 10
+        versionName '2.0.0-hook-foundation'
+    }
+
+    signingConfigs {
+        release {
+            def storePath = project.findProperty('RELEASE_STORE_FILE') ?: System.getenv('RELEASE_STORE_FILE')
+            if (storePath) {
+                storeFile file(storePath)
+                storePassword(project.findProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD') ?: '')
+                keyAlias(project.findProperty('RELEASE_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: '')
+                keyPassword(project.findProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: '')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
     buildFeatures { compose true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
 }
