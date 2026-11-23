@@ -41,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -48,6 +49,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +66,7 @@ import com.wild0408.headsetpopup.config.PopupMediaType
 import com.wild0408.headsetpopup.config.PopupProfile
 import com.wild0408.headsetpopup.config.PopupScaleMode
 import com.wild0408.headsetpopup.config.ResolvedPopupConfig
+import com.wild0408.headsetpopup.hook.GlassButtonStyler
 import com.wild0408.headsetpopup.trigger.TriggerDevicePreset
 import com.wild0408.headsetpopup.ui.theme.SettingsAccents
 import com.haooz.nexioui.button.ButtonDefaults
@@ -177,7 +181,7 @@ fun PopupVisualPreviewCard(
         PopupForegroundTone.DARK -> false
         PopupForegroundTone.AUTO -> isDarkTheme
     }
-    val baseSurface = if (isDarkTheme) Color(0xFF1E2128) else Color(0xFFF3F5FA)
+    val baseSurface = if (isDarkTheme) Color(0xFF222222) else Color(0xFFFFFFFF)
     val effectiveButtonStyle = if (resolved.active) resolved.buttonStyle else PopupButtonStyle.NATIVE
     val buttonSpec = remember(effectiveButtonStyle, autoDarkGlass, preferLightText, isDarkTheme) {
         resolveButtonGlassSpec(
@@ -284,15 +288,7 @@ fun PopupVisualPreviewCard(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = if (isDarkTheme) {
-                                        listOf(Color(0xFF252A36), Color(0xFF1A1D24))
-                                    } else {
-                                        listOf(Color(0xFFFFFFFF), Color(0xFFEEF2FA))
-                                    },
-                                ),
-                            ),
+                            .background(baseSurface),
                     )
                 }
             }
@@ -371,9 +367,10 @@ fun PopupVisualPreviewCard(
                 ) {
                     PreviewGlassButtonSurface(
                         backdrop = cardBackdrop,
+                        styleWire = effectiveButtonStyle.wire,
                         spec = buttonSpec,
                         shape = ContinuousCapsule(),
-                        cornerRadius = buttonHeight * 0.5f,
+                        circular = false,
                         fallbackFill = buttonSpec.buttonFallbackFill,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -393,9 +390,10 @@ fun PopupVisualPreviewCard(
             // 右上角关闭键叠加在卡片顶层（距顶/距右 20dp，尺寸 28dp），与原生 pairingClosable 一致。
             PreviewGlassButtonSurface(
                 backdrop = cardBackdrop,
+                styleWire = effectiveButtonStyle.wire,
                 spec = buttonSpec,
                 shape = CircleShape,
-                cornerRadius = closeSize * 0.5f,
+                circular = true,
                 fallbackFill = buttonSpec.closeFallbackFill,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -416,45 +414,55 @@ fun PopupVisualPreviewCard(
 @Composable
 private fun PreviewGlassButtonSurface(
     backdrop: GlassBackdrop,
+    styleWire: String,
     spec: ButtonGlassPreviewSpec,
     shape: Shape,
-    cornerRadius: Dp,
+    circular: Boolean,
     fallbackFill: Color,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    if (!spec.useRealGlass) {
+    val context = LocalContext.current
+    val surfaceDrawable = remember(context, styleWire, spec.useRealGlass, circular, spec.isDarkGlass) {
+        if (styleWire == PopupButtonStyle.NATIVE.wire || styleWire == PopupButtonStyle.INHERIT.wire) {
+            null
+        } else {
+            val resolvedTone = if (spec.isDarkGlass) "light" else "dark"
+            GlassButtonStyler.createSurfaceDrawable(
+                context,
+                styleWire,
+                resolvedTone,
+                spec.useRealGlass,
+                circular,
+            )
+        }
+    }
+
+    if (surfaceDrawable == null) {
         Box(
             modifier = modifier
                 .clip(shape)
-                .background(fallbackFill)
-                .then(
-                    if (spec.rimStroke.alpha > 0f) {
-                        Modifier.border(0.8.dp, spec.rimStroke, shape)
-                    } else {
-                        Modifier
-                    },
-                ),
+                .background(fallbackFill),
             contentAlignment = Alignment.Center,
             content = content,
         )
         return
     }
 
-    val resolvedStyle = remember(spec, cornerRadius) {
-        NexioGlassStyle.copy(
-            cornerRadius = cornerRadius,
-            liquidRefraction = spec.liquidRefraction,
-            liquidLens = spec.liquidLens,
-            glassColor = spec.glassFill,
-            glassColorMix = spec.glassColorMix,
-            fill = NoneFill,
-            edgeHighlight = true,
-            lightIntensity = spec.lightIntensity,
-            lightOppositeIntensity = spec.lightIntensity * 0.65f,
-            saturation = if (spec.liquidRefraction) 1.18f else 1.05f,
-            brightness = if (spec.isDarkGlass) -0.02f else 0.04f,
+    if (!spec.useRealGlass) {
+        Box(
+            modifier = modifier
+                .clip(shape)
+                .drawBehind {
+                    drawIntoCanvas { canvas ->
+                        surfaceDrawable.setBounds(0, 0, size.width.roundToInt(), size.height.roundToInt())
+                        surfaceDrawable.draw(canvas.nativeCanvas)
+                    }
+                },
+            contentAlignment = Alignment.Center,
+            content = content,
         )
+        return
     }
 
     Box(
@@ -464,20 +472,14 @@ private fun PreviewGlassButtonSurface(
                 shape = { shape },
                 effects = {
                     blur(spec.blurDp.toPx())
-                    runtimeShaderEffect(
-                        key = "PopupPreviewSoftGlass",
-                        shaderString = SOFT_GLASS_LIVE_SHADER,
-                        uniformShaderName = "content",
-                    ) {
-                        applySoftGlass(
-                            style = resolvedStyle,
-                            width = size.width,
-                            height = size.height,
-                        )
+                },
+                onDrawSurface = {
+                    drawIntoCanvas { canvas ->
+                        surfaceDrawable.setBounds(0, 0, size.width.roundToInt(), size.height.roundToInt())
+                        surfaceDrawable.draw(canvas.nativeCanvas)
                     }
                 },
-            )
-            .border(0.75.dp, spec.rimStroke, shape),
+            ),
         contentAlignment = Alignment.Center,
         content = content,
     )
@@ -769,7 +771,7 @@ internal fun resolveButtonGlassSpec(
         -> ButtonGlassPreviewSpec(
             useRealGlass = realGlassSupported,
             isDarkGlass = darkGlass,
-            blurDp = 6.dp,
+            blurDp = 10.dp,
             liquidRefraction = true,
             liquidLens = LiquidLens(
                 refractionHeight = 14.dp,
@@ -777,12 +779,12 @@ internal fun resolveButtonGlassSpec(
                 depthEffect = true,
                 chromaticAberration = 0.85f,
             ),
-            glassFill = if (darkGlass) Color(0xFF1A202D) else Color(0xFFF6F9FF),
-            glassColorMix = if (darkGlass) 0.14f else 0.22f,
-            lightIntensity = if (darkGlass) 0.65f else 0.82f,
-            rimStroke = if (darkGlass) Color(0x80FFFFFF) else Color(0xCCFFFFFF),
-            buttonFallbackFill = if (darkGlass) Color(0x5C121620) else Color(0x52FFFFFF),
-            closeFallbackFill = if (darkGlass) Color(0x52121620) else Color(0x48FFFFFF),
+            glassFill = if (darkGlass) Color(0xFF1A202D) else Color(0xFFF2F2F2),
+            glassColorMix = if (darkGlass) 0.14f else 0.24f,
+            lightIntensity = if (darkGlass) 0.65f else 0.80f,
+            rimStroke = if (darkGlass) Color(0x80FFFFFF) else Color(0x28000000),
+            buttonFallbackFill = if (darkGlass) Color(0x5C121620) else Color(0x72EBEBEB),
+            closeFallbackFill = if (darkGlass) Color(0x52121620) else Color(0x68EBEBEB),
             buttonTextColor = fgColor,
             closeIconColor = fgColor,
         )
@@ -793,15 +795,15 @@ internal fun resolveButtonGlassSpec(
         -> ButtonGlassPreviewSpec(
             useRealGlass = realGlassSupported,
             isDarkGlass = darkGlass,
-            blurDp = 20.dp,
+            blurDp = 22.dp,
             liquidRefraction = false,
             liquidLens = LiquidLens(),
-            glassFill = if (darkGlass) Color(0xFF202531) else Color(0xFFF4F7FC),
+            glassFill = if (darkGlass) Color(0xFF202531) else Color(0xFFF0F0F0),
             glassColorMix = if (darkGlass) 0.34f else 0.42f,
             lightIntensity = if (darkGlass) 0.42f else 0.56f,
-            rimStroke = if (darkGlass) Color(0x58FFFFFF) else Color(0x9CFFFFFF),
-            buttonFallbackFill = if (darkGlass) Color(0x7E181C26) else Color(0x78FFFFFF),
-            closeFallbackFill = if (darkGlass) Color(0x72181C26) else Color(0x6EFFFFFF),
+            rimStroke = if (darkGlass) Color(0x58FFFFFF) else Color(0x26000000),
+            buttonFallbackFill = if (darkGlass) Color(0x7E181C26) else Color(0x8CEBEBEB),
+            closeFallbackFill = if (darkGlass) Color(0x72181C26) else Color(0x82EBEBEB),
             buttonTextColor = fgColor,
             closeIconColor = fgColor,
         )
@@ -809,15 +811,15 @@ internal fun resolveButtonGlassSpec(
         PopupButtonStyle.FROSTED_AUTO -> ButtonGlassPreviewSpec(
             useRealGlass = realGlassSupported,
             isDarkGlass = darkGlass,
-            blurDp = 34.dp,
+            blurDp = 38.dp,
             liquidRefraction = false,
             liquidLens = LiquidLens(),
-            glassFill = if (darkGlass) Color(0xFF222732) else Color(0xFFF2F5FA),
-            glassColorMix = if (darkGlass) 0.56f else 0.64f,
+            glassFill = if (darkGlass) Color(0xFF222732) else Color(0xFFEEEEEE),
+            glassColorMix = if (darkGlass) 0.56f else 0.62f,
             lightIntensity = if (darkGlass) 0.24f else 0.34f,
-            rimStroke = if (darkGlass) Color(0x46FFFFFF) else Color(0x88FFFFFF),
-            buttonFallbackFill = if (darkGlass) Color(0x96202530) else Color(0xA8F7F9FD),
-            closeFallbackFill = if (darkGlass) Color(0x8A202530) else Color(0x9CF7F9FD),
+            rimStroke = if (darkGlass) Color(0x46FFFFFF) else Color(0x24000000),
+            buttonFallbackFill = if (darkGlass) Color(0x96202530) else Color(0xAEECECEC),
+            closeFallbackFill = if (darkGlass) Color(0x8A202530) else Color(0xA4ECECEC),
             buttonTextColor = fgColor,
             closeIconColor = fgColor,
         )
@@ -825,7 +827,7 @@ internal fun resolveButtonGlassSpec(
         PopupButtonStyle.TINT_DARK -> ButtonGlassPreviewSpec(
             useRealGlass = realGlassSupported,
             isDarkGlass = true,
-            blurDp = 22.dp,
+            blurDp = 24.dp,
             liquidRefraction = false,
             liquidLens = LiquidLens(),
             glassFill = Color(0xFF0E1117),
@@ -841,7 +843,7 @@ internal fun resolveButtonGlassSpec(
         PopupButtonStyle.TINT_PURPLE -> ButtonGlassPreviewSpec(
             useRealGlass = realGlassSupported,
             isDarkGlass = true,
-            blurDp = 16.dp,
+            blurDp = 20.dp,
             liquidRefraction = true,
             liquidLens = LiquidLens(
                 refractionHeight = 10.dp,

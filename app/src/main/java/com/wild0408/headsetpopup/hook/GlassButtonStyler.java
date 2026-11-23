@@ -33,7 +33,7 @@ import java.util.Locale;
  * (ported from SoftGlass SDF bevel, dual directional rim lighting, liquid chromatic dispersion,
  * and frosted satin grain) and falls back cleanly on older Android versions.
  */
-final class GlassButtonStyler {
+public final class GlassButtonStyler {
     private static final int TAG_APPLIED_STYLE = 0x5F474C53; // "_GLS"
 
     private static final int KIND_LIQUID = 0;
@@ -49,6 +49,7 @@ final class GlassButtonStyler {
             "uniform float  uDark;\n" +
             "uniform float  uHasBlur;\n" +
             "uniform float  uEdgePx;\n" +
+            "uniform float  uPxPerDp;\n" +
             "uniform float4 uBodyTop;\n" +
             "uniform float4 uBodyBottom;\n" +
             "uniform float4 uRimColor;\n" +
@@ -89,6 +90,7 @@ final class GlassButtonStyler {
             "    if (sd > 0.5) { return half4(0.0); }\n" +
             "    float edgeAA = clamp(0.5 - sd, 0.0, 1.0);\n" +
             "\n" +
+            "    float pxDp = max(uPxPerDp, 1.0);\n" +
             "    float distIn = max(-sd, 0.0);\n" +
             "    float x = clamp(distIn / max(uEdgePx, 1.0), 0.0, 1.0);\n" +
             "    float bevel = smooth5Map(sqrt(x));\n" +
@@ -106,28 +108,29 @@ final class GlassButtonStyler {
             "    float keySpec = pow(max(dot(lightN, keyDir), 0.0), 2.4);\n" +
             "    float oppSpec = pow(max(dot(lightN, oppDir), 0.0), 2.8) * 0.58;\n" +
             "    float rimMask = 1.0 - smoothstep(0.0, max(uEdgePx * 0.85, 1.5), distIn);\n" +
-            "    float outerStroke = 1.0 - smoothstep(0.6, 2.4, distIn);\n" +
-            "    float innerGlint = smoothstep(0.0, 2.0, distIn) * (1.0 - smoothstep(2.0, max(uEdgePx * 0.75, 4.0), distIn));\n" +
+            "    float outerStroke = 1.0 - smoothstep(0.45 * pxDp, 1.25 * pxDp, distIn);\n" +
+            "    float innerHighlight = smoothstep(0.75 * pxDp, 1.55 * pxDp, distIn) * (1.0 - smoothstep(1.65 * pxDp, 3.2 * pxDp, distIn));\n" +
+            "    float innerGlint = smoothstep(0.0, 1.2 * pxDp, distIn) * (1.0 - smoothstep(1.2 * pxDp, max(uEdgePx * 0.8, 3.5 * pxDp), distIn));\n" +
             "\n" +
             "    float3 rgb = body.rgb;\n" +
             "    float alpha = body.a;\n" +
             "\n" +
-            "    float topDome = pow(1.0 - vy, 2.2) * (uKind < 1.5 ? 0.24 : 0.12);\n" +
-            "    rgb += uRimColor.rgb * topDome * (uDark > 0.5 ? 0.75 : 1.0);\n" +
+            "    float topDome = pow(1.0 - vy, 2.2) * (uKind < 1.5 ? 0.22 : 0.11);\n" +
+            "    rgb += uRimColor.rgb * topDome * (uDark > 0.5 ? 0.75 : 0.65);\n" +
             "\n" +
             "    if (uKind < 1.5) {\n" +
-            "        float botLift = vy * vy * (uKind < 0.5 ? 0.16 : 0.11);\n" +
-            "        rgb += uRimColor.rgb * botLift * (uDark > 0.5 ? 0.55 : 0.85);\n" +
+            "        float botLift = vy * vy * (uKind < 0.5 ? 0.14 : 0.10);\n" +
+            "        rgb += uRimColor.rgb * botLift * (uDark > 0.5 ? 0.55 : 0.32);\n" +
             "    }\n" +
             "\n" +
-            "    if (uDispersion > 0.01) {\n" +
+            "    if (uDispersion > 0.01 && (uDark > 0.5 || uKind == 4.0)) {\n" +
             "        float diag = (p.x * p.y) / max(halfSize.x * halfSize.y, 1.0);\n" +
             "        float3 cyanTint = float3(0.42, 0.86, 1.00);\n" +
             "        float3 warmTint = float3(1.00, 0.62, 0.88);\n" +
             "        float3 spectrum = mix(cyanTint, warmTint, clamp(diag * 0.9 + 0.5, 0.0, 1.0));\n" +
             "        float dispMask = innerGlint * (0.45 + 0.55 * (keySpec + oppSpec));\n" +
-            "        rgb = mix(rgb, spectrum, clamp(dispMask * uDispersion * 0.55, 0.0, 0.65));\n" +
-            "        alpha = max(alpha, dispMask * uDispersion * 0.42);\n" +
+            "        rgb = mix(rgb, spectrum, clamp(dispMask * uDispersion * 0.45, 0.0, 0.55));\n" +
+            "        alpha = max(alpha, dispMask * uDispersion * 0.36);\n" +
             "    }\n" +
             "\n" +
             "    if (uGrain > 0.001) {\n" +
@@ -135,14 +138,25 @@ final class GlassButtonStyler {
             "        rgb += float3(n);\n" +
             "    }\n" +
             "\n" +
-            "    float rimLight = (keySpec + oppSpec) * rimMask * uRimColor.a;\n" +
-            "    float borderWeight = outerStroke * (uRimColor.a * (0.42 + 0.58 * (keySpec + oppSpec)));\n" +
-            "    rgb = mix(rgb, uRimColor.rgb, clamp(rimLight * 0.55 + borderWeight * 0.85, 0.0, 0.95));\n" +
-            "    alpha = clamp(alpha + borderWeight * 0.65 + rimLight * 0.25, 0.0, 0.96);\n" +
+            "    if (uDark > 0.5 || uKind == 4.0) {\n" +
+            "        float rimLight = (keySpec + oppSpec) * rimMask * uRimColor.a;\n" +
+            "        float borderWeight = outerStroke * (uRimColor.a * (0.42 + 0.58 * (keySpec + oppSpec)));\n" +
+            "        rgb = mix(rgb, uRimColor.rgb, clamp(rimLight * 0.55 + borderWeight * 0.85, 0.0, 0.95));\n" +
+            "        alpha = clamp(alpha + borderWeight * 0.65 + rimLight * 0.25, 0.0, 0.96);\n" +
+            "    } else {\n" +
+            "        // Pure neutral achromatic light glass: white inner specular rim + subtle neutral grey\n" +
+            "        // outer hairline & soft lower edge depth, with zero color tint on white backgrounds.\n" +
+            "        float lowerBevel = (1.0 - smoothstep(0.6 * pxDp, 3.8 * pxDp, distIn)) * smoothstep(0.35, 0.95, vy);\n" +
+            "        rgb = mix(rgb, float3(0.0, 0.0, 0.0), lowerBevel * 0.06);\n" +
+            "        alpha = clamp(alpha + lowerBevel * 0.07, 0.0, 0.94);\n" +
             "\n" +
-            "    if (uDark < 0.5 && uKind != 4.0) {\n" +
-            "        float outerShadow = 1.0 - smoothstep(0.0, 1.25, distIn);\n" +
-            "        rgb = mix(rgb, float3(0.18, 0.20, 0.25), outerShadow * 0.14);\n" +
+            "        float topSpecular = innerHighlight * (0.40 + 0.60 * (1.0 - vy)) * (0.55 + 0.45 * (keySpec + oppSpec));\n" +
+            "        rgb = mix(rgb, float3(1.0, 1.0, 1.0), clamp(topSpecular * 0.90, 0.0, 0.95));\n" +
+            "        alpha = clamp(alpha + topSpecular * 0.22, 0.0, 0.96);\n" +
+            "\n" +
+            "        float rimWeight = outerStroke * (0.18 + 0.14 * vy);\n" +
+            "        rgb = mix(rgb, float3(0.0, 0.0, 0.0), clamp(rimWeight, 0.0, 0.32));\n" +
+            "        alpha = max(alpha, outerStroke * (0.24 + 0.12 * vy));\n" +
             "    }\n" +
             "\n" +
             "    float finalA = alpha * edgeAA;\n" +
@@ -196,6 +210,9 @@ final class GlassButtonStyler {
         });
         button.setClipToOutline(true);
         enableSmoothCorners(button);
+        button.setStateListAnimator(null);
+        button.setElevation(0f);
+        button.setTranslationZ(0f);
 
         int textColor = resolveForegroundColor(preset);
         button.setTextColor(textColor);
@@ -239,6 +256,9 @@ final class GlassButtonStyler {
         });
         closeButton.setClipToOutline(true);
         enableSmoothCorners(closeButton);
+        closeButton.setStateListAnimator(null);
+        closeButton.setElevation(0f);
+        closeButton.setTranslationZ(0f);
 
         closeButton.setTag(TAG_APPLIED_STYLE, sig);
         closeButton.invalidateOutline();
@@ -343,6 +363,31 @@ final class GlassButtonStyler {
         return nightMask == Configuration.UI_MODE_NIGHT_YES;
     }
 
+    /**
+     * Builds the exact same glass surface Drawable (AGSL shader on API 33+, fallback below)
+     * used on the real HyperOS PairingDialog so the in-app preview renders identically.
+     */
+    public static Drawable createSurfaceDrawable(
+            Context context,
+            String buttonStyle,
+            String foregroundTone,
+            boolean hasRealBlur,
+            boolean circular
+    ) {
+        if (context == null || buttonStyle == null || "native".equalsIgnoreCase(buttonStyle)) {
+            return null;
+        }
+        ResolvedPreset preset = resolvePreset(context, buttonStyle, foregroundTone);
+        Drawable content = null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            content = SoftGlassSurfaceDrawable.tryCreate(context, preset, hasRealBlur, circular);
+        }
+        if (content == null) {
+            content = createFallbackDrawable(context, preset, hasRealBlur, false, circular);
+        }
+        return content;
+    }
+
     private static Drawable createGlassDrawable(
             Context context,
             ResolvedPreset preset,
@@ -392,7 +437,10 @@ final class GlassButtonStyler {
         );
         body.setShape(circular ? GradientDrawable.OVAL : GradientDrawable.RECTANGLE);
         if (!circular) body.setCornerRadius(radius);
-        body.setStroke(strokeWidth, p.rimColor);
+        int strokeColor = (!preset.dark && preset.kind != KIND_TINT_PURPLE)
+                ? Color.argb(46, 0, 0, 0)
+                : p.rimColor;
+        body.setStroke(strokeWidth, strokeColor);
 
         GradientDrawable gloss = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -440,11 +488,11 @@ final class GlassButtonStyler {
                     );
                 } else {
                     return new Palette(
-                            scaleAlpha(Color.argb(96, 255, 255, 255), alphaBoost),
-                            scaleAlpha(Color.argb(60, 234, 240, 252), alphaBoost),
-                            Color.argb(220, 255, 255, 255),
+                            scaleAlpha(Color.argb(122, 244, 244, 244), alphaBoost),
+                            scaleAlpha(Color.argb(104, 228, 228, 228), alphaBoost),
+                            Color.argb(230, 255, 255, 255),
                             10.0f,
-                            0.78f,
+                            0.65f,
                             0.0f
                     );
                 }
@@ -460,9 +508,9 @@ final class GlassButtonStyler {
                     );
                 } else {
                     return new Palette(
-                            scaleAlpha(Color.argb(148, 255, 255, 255), alphaBoost),
-                            scaleAlpha(Color.argb(114, 238, 242, 249), alphaBoost),
-                            Color.argb(205, 255, 255, 255),
+                            scaleAlpha(Color.argb(160, 244, 244, 244), alphaBoost),
+                            scaleAlpha(Color.argb(142, 228, 228, 228), alphaBoost),
+                            Color.argb(215, 255, 255, 255),
                             13.0f,
                             0.0f,
                             0.0f
@@ -480,12 +528,12 @@ final class GlassButtonStyler {
                     );
                 } else {
                     return new Palette(
-                            scaleAlpha(Color.argb(182, 248, 250, 253), alphaBoost),
-                            scaleAlpha(Color.argb(164, 236, 240, 246), alphaBoost),
-                            Color.argb(185, 255, 255, 255),
+                            scaleAlpha(Color.argb(192, 242, 242, 242), alphaBoost),
+                            scaleAlpha(Color.argb(180, 230, 230, 230), alphaBoost),
+                            Color.argb(195, 255, 255, 255),
                             6.0f,
                             0.0f,
-                            0.040f
+                            0.042f
                     );
                 }
             case KIND_TINT_DARK:
@@ -561,8 +609,8 @@ final class GlassButtonStyler {
 
             Method applyGlass = hyperUtils.getMethod("tryApplyContainerWithGlass", View.class, glassConfigClass);
             boolean applied = Boolean.TRUE.equals(applyGlass.invoke(null, view, glassConfig));
-            if (applied) {
-                applyBloomStroke(view, loader, preset.dark);
+            if (applied && preset.dark) {
+                applyBloomStroke(view, loader, true);
             }
             return applied;
         } catch (Throwable error) {
@@ -578,8 +626,8 @@ final class GlassButtonStyler {
             int radiusPx = Math.round(dp(view.getContext(), preset.blurDp));
             Method setBgBlur = blurUtils.getMethod("setBackgroundBlur", View.class, int.class, boolean.class);
             boolean ok = Boolean.TRUE.equals(setBgBlur.invoke(null, view, radiusPx, true));
-            if (ok && preset.kind != KIND_FROSTED) {
-                applyBloomStroke(view, loader, preset.dark);
+            if (ok && preset.dark && preset.kind != KIND_FROSTED) {
+                applyBloomStroke(view, loader, true);
             }
             return ok;
         } catch (Throwable ignored) {
@@ -627,6 +675,7 @@ final class GlassButtonStyler {
         private final boolean hasRealBlur;
         private final boolean circular;
         private final float edgePx;
+        private final float pxPerDp;
 
         private SoftGlassSurfaceDrawable(
                 Context context,
@@ -641,6 +690,7 @@ final class GlassButtonStyler {
             this.palette = palette;
             this.hasRealBlur = hasRealBlur;
             this.circular = circular;
+            this.pxPerDp = Math.max(1f, context.getResources().getDisplayMetrics().density);
             this.edgePx = dp(context, circular ? Math.min(palette.edgeDp, 8.5f) : palette.edgeDp);
             this.paint.setShader(shader);
         }
@@ -677,6 +727,7 @@ final class GlassButtonStyler {
             shader.setFloatUniform("uDark", preset.dark ? 1.0f : 0.0f);
             shader.setFloatUniform("uHasBlur", hasRealBlur ? 1.0f : 0.0f);
             shader.setFloatUniform("uEdgePx", Math.min(edgePx, Math.min(w, h) * 0.45f));
+            shader.setFloatUniform("uPxPerDp", pxPerDp);
             setColorUniform("uBodyTop", palette.topFill);
             setColorUniform("uBodyBottom", palette.bottomFill);
             setColorUniform("uRimColor", palette.rimColor);
