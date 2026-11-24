@@ -221,6 +221,15 @@ class PopupConfigState(private val appContext: Context) {
     ): Result<PopupMediaSpec> =
         PopupConfigStorage.importMedia(appContext, uri, slotPrefix, defaultScaleMode, defaultLoop, crop)
 
+    fun replaceDocument(imported: PopupConfigDocument) {
+        commit(imported)
+        if (selectedProfileId != PopupProfile.GLOBAL_ID &&
+            document.deviceProfiles.none { it.id == selectedProfileId }
+        ) {
+            selectedProfileId = PopupProfile.GLOBAL_ID
+        }
+    }
+
     private fun commit(next: PopupConfigDocument) {
         document = PopupConfigStorage.save(appContext, next)
     }

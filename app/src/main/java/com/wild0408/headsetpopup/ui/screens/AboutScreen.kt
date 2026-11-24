@@ -13,17 +13,25 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,13 +46,20 @@ import androidx.compose.ui.unit.sp
 import com.wild0408.headsetpopup.R
 import com.wild0408.headsetpopup.ui.components.DocumentPageScaffold
 import com.wild0408.headsetpopup.ui.theme.SettingsAccents
+import com.wild0408.headsetpopup.update.AppUpdateChecker
+import com.wild0408.headsetpopup.update.ReleaseInfo
+import com.wild0408.headsetpopup.update.UpdateCheckResult
 import com.haooz.nexioui.arrowpreference.ArrowPreference
 import com.haooz.nexioui.basiccomponent.BasicComponent
+import com.haooz.nexioui.button.ButtonDefaults
+import com.haooz.nexioui.button.FlatTextButton
 import com.haooz.nexioui.card.Card
 import com.haooz.nexioui.icon.NexioIcons
 import com.haooz.nexioui.icon.extended.Contacts
 import com.haooz.nexioui.icon.extended.Link
 import com.haooz.nexioui.icon.extended.Report
+import com.haooz.nexioui.icon.extended.Update
+import com.haooz.nexioui.overlaydialog.OverlayDialog
 import com.haooz.nexioui.overscroll.overScrollVertical
 import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.smalltitle.SmallTitle
@@ -52,6 +67,8 @@ import com.haooz.nexioui.text.NexioText
 import com.haooz.nexioui.theme.NexioTheme
 import com.haooz.nexioui.topappbar.CollapsibleTopAppBarDefaults
 import com.haooz.nexioui.topappbar.collapsibleTopInset
+import kotlinx.coroutines.launch
+import java.util.Locale
 
 private const val REPO_URL = "https://github.com/wild0408/HyperOS-HeadsetPopupCustomizer"
 private const val ISSUES_URL = "$REPO_URL/issues"
@@ -61,6 +78,7 @@ private const val AUTHOR_URL = "https://github.com/wild0408"
 fun AboutScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     val appMeta = remember(context) {
         val pkgInfo = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0)
@@ -72,10 +90,14 @@ fun AboutScreen(onBack: () -> Unit) {
         Triple(context.packageName, versionName, versionCode)
     }
 
+    var checkingUpdate by remember { mutableStateOf(false) }
+    var updateSummary by remember { mutableStateOf("从 GitHub Releases 检查最新版本") }
+    var availableRelease by remember { mutableStateOf<ReleaseInfo?>(null) }
+
     DocumentPageScaffold(
         title = "关于",
         onBack = onBack,
-    ) { paddingValues, scrollBehavior, _ ->
+    ) { paddingValues, scrollBehavior, backdrop ->
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -145,6 +167,37 @@ fun AboutScreen(onBack: () -> Unit) {
                     insideMargin = PaddingValues(0.dp),
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
+                        ArrowPreference(
+                            title = "检查更新",
+                            summary = if (checkingUpdate) "正在连接 GitHub 检查最新版本…" else updateSummary,
+                            startAction = {
+                                SquareAccentIcon(
+                                    accent = SettingsAccents.Green,
+                                    icon = NexioIcons.Update,
+                                )
+                            },
+                            onClick = {
+                                if (checkingUpdate) return@ArrowPreference
+                                checkingUpdate = true
+                                scope.launch {
+                                    when (val result = AppUpdateChecker.checkLatestRelease(appMeta.second)) {
+                                        is UpdateCheckResult.UpdateAvailable -> {
+                                            updateSummary = "发现新版本：${result.release.tagName}"
+                                            availableRelease = result.release
+                                        }
+                                        is UpdateCheckResult.UpToDate -> {
+                                            updateSummary = "已是最新版本（当前 v${result.currentVersion}）"
+                                            Toast.makeText(context, "当前已是最新版本", Toast.LENGTH_SHORT).show()
+                                        }
+                                        is UpdateCheckResult.Error -> {
+                                            updateSummary = result.message
+                                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                    checkingUpdate = false
+                                }
+                            },
+                        )
                         ArrowPreference(
                             title = "GitHub 仓库",
                             summary = "wild0408/HyperOS-HeadsetPopupCustomizer",
@@ -235,6 +288,69 @@ fun AboutScreen(onBack: () -> Unit) {
                             title = "Miuix",
                             summary = "MIUI / HyperOS 设计语言与图标体系",
                             onClick = { openExternalUrl(context, "https://github.com/compose-miuix-ui/miuix") },
+                        )
+                    }
+                }
+            }
+        }
+
+        val release = availableRelease
+        OverlayDialog(
+            show = release != null,
+            title = if (release != null) "发现新版本 ${release.tagName}" else "发现新版本",
+            liquidGlassBackdrop = backdrop,
+            onDismissRequest = { availableRelease = null },
+        ) {
+            if (release != null) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val sizeLine = if (release.apkSizeBytes > 0L) {
+                        val mb = release.apkSizeBytes / (1024.0 * 1024.0)
+                        "${release.apkFileName ?: "APK"} · ${String.format(Locale.US, "%.2f MB", mb)}"
+                    } else {
+                        release.title
+                    }
+                    NexioText(
+                        text = sizeLine,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = NexioTheme.colorScheme.onBackground,
+                    )
+                    if (release.notes.isNotBlank()) {
+                        NexioText(
+                            text = release.notes,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            color = NexioTheme.colorScheme.onSurfaceVariantSummary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState()),
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        FlatTextButton(
+                            text = "发布页",
+                            onClick = {
+                                availableRelease = null
+                                openExternalUrl(context, release.htmlUrl)
+                            },
+                            colors = ButtonDefaults.textButtonColors(),
+                            modifier = Modifier.weight(1f),
+                        )
+                        FlatTextButton(
+                            text = if (release.apkDownloadUrl != null) "下载 APK" else "前往更新",
+                            onClick = {
+                                availableRelease = null
+                                openExternalUrl(context, release.apkDownloadUrl ?: release.htmlUrl)
+                            },
+                            colors = ButtonDefaults.textButtonColorsPrimary(),
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
