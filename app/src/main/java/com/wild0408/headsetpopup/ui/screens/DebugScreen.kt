@@ -203,7 +203,7 @@ fun DebugScreen(onBack: () -> Unit) {
                         )
                         BasicComponent(
                             title = "日志过滤",
-                            summary = "adb logcat -s FastConnectHook",
+                            summary = "adb logcat -s HeadsetPopup",
                         )
                     }
                 }

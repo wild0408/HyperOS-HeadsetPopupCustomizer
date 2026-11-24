@@ -267,7 +267,11 @@ final class PopupMediaView extends FrameLayout {
                 player.setOnErrorListener((mp, what, extra) -> {
                     HookLog.w("MediaPlayer error asset=" + assetName + " what=" + what + " extra=" + extra, null);
                     mainHandler.post(() -> {
-                        if (!released && token == generation && mediaPlayer == mp && !effectiveLoop) {
+                        if (released || token != generation || mediaPlayer != mp) {
+                            MEDIA_EXECUTOR.execute(() -> releasePlayerQuietly(mp, null));
+                            return;
+                        }
+                        if (!effectiveLoop) {
                             fireOneShotOnce();
                         }
                     });

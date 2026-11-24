@@ -64,18 +64,36 @@ object BluetoothProcessController {
     private fun runSuCommand(shellCommand: String, timeoutSeconds: Long): CommandOutput {
         var process: Process? = null
         return try {
-            process = ProcessBuilder("su", "-c", shellCommand)
+            val proc = ProcessBuilder("su", "-c", shellCommand)
                 .redirectErrorStream(true)
                 .start()
-            val finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS)
+            process = proc
+            val outputBuilder = StringBuilder()
+            val readerThread = Thread {
+                runCatching {
+                    proc.inputStream.bufferedReader().use { reader ->
+                        val buffer = CharArray(1024)
+                        while (true) {
+                            val read = reader.read(buffer)
+                            if (read < 0) break
+                            if (outputBuilder.length < 4096) {
+                                outputBuilder.append(buffer, 0, read)
+                            }
+                        }
+                    }
+                }
+            }.apply {
+                isDaemon = true
+                start()
+            }
+            val finished = proc.waitFor(timeoutSeconds, TimeUnit.SECONDS)
             if (!finished) {
-                process.destroyForcibly()
+                proc.destroyForcibly()
+                readerThread.join(200L)
                 CommandOutput(timedOut = true)
             } else {
-                val out = runCatching {
-                    process.inputStream.bufferedReader().use { it.readText().trim() }
-                }.getOrDefault("")
-                CommandOutput(exitCode = process.exitValue(), output = out)
+                readerThread.join(500L)
+                CommandOutput(exitCode = proc.exitValue(), output = outputBuilder.toString().trim())
             }
         } catch (error: IOException) {
             CommandOutput(ioError = error.message ?: "无法调用 su")

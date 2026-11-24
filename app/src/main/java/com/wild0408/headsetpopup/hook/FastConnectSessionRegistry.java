@@ -9,6 +9,7 @@ import android.os.Message;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -25,7 +26,7 @@ import java.util.WeakHashMap;
  */
 final class FastConnectSessionRegistry {
     private static final String EXTRA_ACTIVE_TRIGGER = "com.wild0408.headsetpopup.extra.ACTIVE_TRIGGER";
-    private static final Map<ViewGroup, View> BACKGROUND_LAYERS =
+    private static final Map<ViewGroup, WeakReference<View>> BACKGROUND_LAYERS =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private final io.github.libxposed.api.XposedModule module;
@@ -37,7 +38,7 @@ final class FastConnectSessionRegistry {
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Set<String> hookedCloseCallbacks =
             Collections.synchronizedSet(new HashSet<>());
-    private final Map<Object, Object> activeTriggerHandlers =
+    private final Map<Object, WeakReference<Object>> activeTriggerHandlers =
             Collections.synchronizedMap(new WeakHashMap<>());
     private final Set<String> hookedHandlerMethods =
             Collections.synchronizedSet(new HashSet<>());
@@ -52,7 +53,7 @@ final class FastConnectSessionRegistry {
 
     static void registerBackgroundLayer(ViewGroup parentPanel, View layer) {
         if (parentPanel != null && layer != null) {
-            BACKGROUND_LAYERS.put(parentPanel, layer);
+            BACKGROUND_LAYERS.put(parentPanel, new WeakReference<>(layer));
         }
     }
 
@@ -63,7 +64,9 @@ final class FastConnectSessionRegistry {
     }
 
     static boolean hasBackgroundLayer(ViewGroup group) {
-        return group != null && BACKGROUND_LAYERS.containsKey(group);
+        if (group == null) return false;
+        WeakReference<View> ref = BACKGROUND_LAYERS.get(group);
+        return ref != null && ref.get() != null;
     }
 
     /**
@@ -71,7 +74,8 @@ final class FastConnectSessionRegistry {
      * or null to let ViewGroup run its normal drawing order untouched.
      */
     static Integer resolveChildDrawingOrder(ViewGroup group, int childCount, int drawingPosition) {
-        View bg = BACKGROUND_LAYERS.get(group);
+        WeakReference<View> ref = BACKGROUND_LAYERS.get(group);
+        View bg = ref == null ? null : ref.get();
         if (bg == null) return null;
         int bgIndex = group.indexOfChild(bg);
         if (bgIndex < 0 || bgIndex >= childCount) return null;
@@ -311,7 +315,7 @@ final class FastConnectSessionRegistry {
 
         Object handler = field(controller, "mMainHandler");
         if (handler != null) {
-            activeTriggerHandlers.put(handler, controller);
+            activeTriggerHandlers.put(handler, new WeakReference<>(controller));
             Method handleMessage = methodWithParams(handler.getClass(), "handleMessage", Message.class);
             if (handleMessage != null && hookedHandlerMethods.add(handleMessage.toGenericString())) {
                 try {
@@ -321,7 +325,8 @@ final class FastConnectSessionRegistry {
                             .setPriority(io.github.libxposed.api.XposedInterface.PRIORITY_HIGHEST)
                             .setExceptionMode(io.github.libxposed.api.XposedInterface.ExceptionMode.PROTECTIVE)
                             .intercept(chain -> {
-                                Object ownerController = activeTriggerHandlers.get(chain.getThisObject());
+                                WeakReference<Object> ownerRef = activeTriggerHandlers.get(chain.getThisObject());
+                                Object ownerController = ownerRef == null ? null : ownerRef.get();
                                 Object arg = chain.getArgs().isEmpty() ? null : chain.getArgs().get(0);
                                 if (ownerController != null && arg instanceof Message) {
                                     int what = ((Message) arg).what;

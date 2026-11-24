@@ -156,6 +156,10 @@ class MediaCropCoordinator(private val router: AppRouter) {
             req?.onConfirm?.invoke(crop)
         }
     }
+
+    fun discard(id: String) {
+        requests.remove(id)
+    }
 }
 
 val LocalMediaCropCoordinator = staticCompositionLocalOf<MediaCropCoordinator> {
@@ -496,6 +500,7 @@ fun MediaCropScreen(
 
     DisposableEffect(requestId) {
         onDispose {
+            coordinator.discard(requestId)
             val bmp = meta?.imageBitmap
             if (bmp != null && !bmp.isRecycled) {
                 runCatching { bmp.recycle() }

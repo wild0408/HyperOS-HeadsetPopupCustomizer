@@ -61,7 +61,7 @@ fun SettingsScreen(
     val versionName = remember(context) {
         runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull().orEmpty().ifBlank { "2.0.0-hook-foundation" }
+        }.getOrNull().orEmpty().ifBlank { "2.0.0" }
     }
 
     var showRestartDialog by remember { mutableStateOf(false) }

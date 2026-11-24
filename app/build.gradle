@@ -3,6 +3,39 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def versionPropsFile = rootProject.file('version.properties')
+def versionProps = new Properties()
+if (versionPropsFile.exists()) {
+    versionPropsFile.withInputStream { versionProps.load(it) }
+}
+
+def readGitCommitCount = {
+    try {
+        def proc = new ProcessBuilder('git', 'rev-list', '--count', 'HEAD')
+                .directory(rootProject.projectDir)
+                .redirectErrorStream(true)
+                .start()
+        def out = proc.inputStream.getText('UTF-8').trim()
+        proc.waitFor()
+        if (proc.exitValue() == 0 && out.isInteger()) {
+            return out.toInteger()
+        }
+    } catch (Throwable ignored) {
+    }
+    return null
+}
+
+def versionMajor = (versionProps.getProperty('VERSION_MAJOR') ?: '2').toInteger()
+def versionMinor = (versionProps.getProperty('VERSION_MINOR') ?: '0').toInteger()
+def versionPatchBase = (versionProps.getProperty('VERSION_PATCH_BASE') ?: '0').toInteger()
+def versionCodeBase = (versionProps.getProperty('VERSION_CODE_BASE') ?: '10').toInteger()
+def gitCommitBase = (versionProps.getProperty('GIT_COMMIT_BASE') ?: '0').toInteger()
+def currentGitCommits = readGitCommitCount()
+def commitOffset = currentGitCommits != null ? Math.max(0, currentGitCommits - gitCommitBase) : 0
+def computedVersionCode = versionCodeBase + commitOffset
+def computedVersionPatch = versionPatchBase + commitOffset
+def computedVersionName = "${versionMajor}.${versionMinor}.${computedVersionPatch}"
+
 android {
     namespace 'com.wild0408.headsetpopup'
     compileSdk 37
@@ -11,8 +44,12 @@ android {
         applicationId 'com.wild0408.headsetpopup'
         minSdk 28
         targetSdk 36
-        versionCode 10
-        versionName '2.0.0-hook-foundation'
+        versionCode computedVersionCode
+        versionName computedVersionName
+        resourceConfigurations += ['zh-rCN', 'zh', 'en']
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a'
+        }
     }
 
     signingConfigs {
@@ -29,9 +66,23 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
-            shrinkResources false
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.release.storeFile != null ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    packaging {
+        resources {
+            excludes += [
+                'META-INF/LICENSE*',
+                'META-INF/NOTICE*',
+                'META-INF/*.version',
+                'META-INF/androidx/**',
+                'DebugProbesKt.bin',
+                'kotlin-tooling-metadata.json',
+            ]
         }
     }
 
@@ -51,8 +102,53 @@ dependencies {
     implementation 'androidx.savedstate:savedstate:1.3.1'
     implementation 'androidx.navigationevent:navigationevent-android:1.1.2'
     implementation 'androidx.navigationevent:navigationevent-compose-android:1.1.2'
-    implementation 'top.yukonga.miuix.kmp:miuix-ui:0.9.3'
-    implementation 'top.yukonga.miuix.kmp:miuix-icons:0.9.3'
     implementation 'com.github.HaoZai000.SoftGlass:softglass-android:0.1.3'
     implementation 'com.github.HaoZai000.NexioUI:nexioui-android:0.1.1'
+}
+
+def writeVersionProperties = { int major, int minor, int patchBase, int codeBase, int commitBase ->
+    versionPropsFile.setText([
+        '# Automatic semantic versioning baseline (driven by Git commit count).',
+        '# Every new git commit automatically increments VERSION_CODE and patch version.',
+        '# Use `gradle :app:bumpMinor` or `gradle :app:bumpMajor` to advance minor/major version.',
+        "VERSION_MAJOR=${major}",
+        "VERSION_MINOR=${minor}",
+        "VERSION_PATCH_BASE=${patchBase}",
+        "VERSION_CODE_BASE=${codeBase}",
+        "GIT_COMMIT_BASE=${commitBase}",
+        '',
+    ].join('\n'), 'UTF-8')
+}
+
+tasks.register('printVersion') {
+    group = 'versioning'
+    description = 'Print the resolved semantic versionName and versionCode derived from Git commits.'
+    doLast {
+        println "versionName=${computedVersionName} versionCode=${computedVersionCode} (gitCommits=${currentGitCommits ?: 'unavailable'}, commitBase=${gitCommitBase}, offset=${commitOffset})"
+    }
+}
+
+tasks.register('bumpMinor') {
+    group = 'versioning'
+    description = 'Increment minor version, reset patch to 0, and anchor git commit baseline for the next commit.'
+    doLast {
+        def nextMajor = versionMajor
+        def nextMinor = versionMinor + 1
+        def nextCodeBase = computedVersionCode + 1
+        def nextCommitBase = (currentGitCommits != null ? currentGitCommits : gitCommitBase) + 1
+        writeVersionProperties(nextMajor, nextMinor, 0, nextCodeBase, nextCommitBase)
+        println "Bumped minor version -> ${nextMajor}.${nextMinor}.0 (versionCode=${nextCodeBase}, gitCommitBase=${nextCommitBase})"
+    }
+}
+
+tasks.register('bumpMajor') {
+    group = 'versioning'
+    description = 'Increment major version, reset minor/patch to 0, and anchor git commit baseline for the next commit.'
+    doLast {
+        def nextMajor = versionMajor + 1
+        def nextCodeBase = computedVersionCode + 1
+        def nextCommitBase = (currentGitCommits != null ? currentGitCommits : gitCommitBase) + 1
+        writeVersionProperties(nextMajor, 0, 0, nextCodeBase, nextCommitBase)
+        println "Bumped major version -> ${nextMajor}.0.0 (versionCode=${nextCodeBase}, gitCommitBase=${nextCommitBase})"
+    }
 }

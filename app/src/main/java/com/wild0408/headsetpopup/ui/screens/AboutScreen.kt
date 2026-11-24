@@ -65,7 +65,7 @@ fun AboutScreen(onBack: () -> Unit) {
         val pkgInfo = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0)
         }.getOrNull()
-        val versionName = pkgInfo?.versionName?.takeIf { it.isNotBlank() } ?: "2.0.0-hook-foundation"
+        val versionName = pkgInfo?.versionName?.takeIf { it.isNotBlank() } ?: "2.0.0"
         val versionCode = pkgInfo?.let {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong()
         } ?: 10L
