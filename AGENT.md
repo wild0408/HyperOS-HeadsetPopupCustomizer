@@ -146,7 +146,7 @@ art/ic_launcher.svg                           # 1024×1024 纯矢量 SVG 源图�
 
 ### 4.6 Release 构建约束
 - `app/build.gradle` 中 `release` 构建类型开启 `minifyEnabled true`、`shrinkResources true`，并通过 `app/proguard-rules.pro` 显式保留 `com.wild0408.headsetpopup.hook.**`、`PopupConfigProvider`、`MainActivity` 及 `META-INF/xposed/**`，兼顾体积瘦身与 Hook/反射零回归。
-- 支持通过 Gradle 属性或环境变量传入正式签名（`RELEASE_STORE_FILE`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`）；未配置时自动回退至 `signingConfigs.debug` 以便本地直接签名安装。
+- 支持通过 Gradle 属性、环境变量或本地 `signing.properties`（已由 `.gitignore` 忽略，模板见 `signing.properties.example`）传入正式签名（`RELEASE_STORE_FILE`、`RELEASE_STORE_PASSWORD`、`RELEASE_KEY_ALIAS`、`RELEASE_KEY_PASSWORD`）；未配置时自动回退至 `signingConfigs.debug`。
 
 ---
 

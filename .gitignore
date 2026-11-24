@@ -6,6 +6,8 @@ app/build/
 *.aab
 *.jks
 *.keystore
+keystore/
+signing.properties
 *.db
 *.db-shm
 *.db-wal

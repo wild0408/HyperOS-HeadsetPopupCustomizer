@@ -54,12 +54,25 @@ android {
 
     signingConfigs {
         release {
-            def storePath = project.findProperty('RELEASE_STORE_FILE') ?: System.getenv('RELEASE_STORE_FILE')
+            def signingProps = new Properties()
+            def signingPropsFile = rootProject.file('signing.properties')
+            if (signingPropsFile.exists()) {
+                signingPropsFile.withInputStream { signingProps.load(it) }
+            }
+            def propOrEnv = { String key ->
+                project.findProperty(key)?.toString()?.trim()
+                    ?: System.getenv(key)?.trim()
+                    ?: signingProps.getProperty(key)?.trim()
+            }
+            def storePath = propOrEnv('RELEASE_STORE_FILE')
             if (storePath) {
-                storeFile file(storePath)
-                storePassword(project.findProperty('RELEASE_STORE_PASSWORD') ?: System.getenv('RELEASE_STORE_PASSWORD') ?: '')
-                keyAlias(project.findProperty('RELEASE_KEY_ALIAS') ?: System.getenv('RELEASE_KEY_ALIAS') ?: '')
-                keyPassword(project.findProperty('RELEASE_KEY_PASSWORD') ?: System.getenv('RELEASE_KEY_PASSWORD') ?: '')
+                def resolvedStore = rootProject.file(storePath)
+                if (resolvedStore.exists()) {
+                    storeFile resolvedStore
+                    storePassword(propOrEnv('RELEASE_STORE_PASSWORD') ?: '')
+                    keyAlias(propOrEnv('RELEASE_KEY_ALIAS') ?: '')
+                    keyPassword(propOrEnv('RELEASE_KEY_PASSWORD') ?: '')
+                }
             }
         }
     }

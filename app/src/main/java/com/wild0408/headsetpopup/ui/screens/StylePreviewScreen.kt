@@ -1,7 +1,15 @@
 package com.wild0408.headsetpopup.ui.screens
 
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -21,6 +30,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wild0408.headsetpopup.config.ConnectedTransitionMode
@@ -37,6 +48,7 @@ import com.wild0408.headsetpopup.ui.components.AddModelProfileDialog
 import com.wild0408.headsetpopup.ui.components.OverlayDropdownMenu
 import com.wild0408.headsetpopup.ui.components.PopupVisualPreviewCard
 import com.wild0408.headsetpopup.ui.components.ProfileChipStrip
+import com.wild0408.headsetpopup.ui.components.rememberCroppedMediaThumbnail
 import com.wild0408.headsetpopup.ui.navigation.AppRoute
 import com.wild0408.headsetpopup.ui.navigation.LocalAppRouter
 import com.wild0408.headsetpopup.ui.theme.SettingsAccents
@@ -53,6 +65,7 @@ import com.haooz.nexioui.icon.extended.Image
 import com.haooz.nexioui.icon.extended.Layers
 import com.haooz.nexioui.icon.extended.Refresh
 import com.haooz.nexioui.icon.extended.SearchDevice
+import com.haooz.nexioui.overlaydialog.OverlayDialog
 import com.haooz.nexioui.overscroll.overScrollVertical
 import com.haooz.nexioui.scrollhaptic.scrollEndHaptic
 import com.haooz.nexioui.slider.Slider
@@ -63,6 +76,8 @@ import com.haooz.nexioui.theme.NexioTheme
 import com.haooz.nexioui.topappbar.collapsibleTopInset
 import com.haooz.softglass.backdrop.GlassBackdrop
 import com.haooz.softglass.backdrop.backdrops.LayerBackdrop
+import com.haooz.softglass.shape.ContinuousRoundedRectangle
+import com.haooz.softglass.shape.continuousClip
 import kotlin.math.roundToInt
 
 @Composable
@@ -70,6 +85,7 @@ fun StylePreviewScreen(
     contentBackdrop: LayerBackdrop,
     chromeBackdrop: GlassBackdrop,
 ) {
+    val context = LocalContext.current
     val popupConfig = LocalPopupConfig.current
     val router = LocalAppRouter.current
     val cropCoordinator = LocalMediaCropCoordinator.current
@@ -78,10 +94,14 @@ fun StylePreviewScreen(
     val doc = popupConfig.document
     val profile = popupConfig.activeProfile
     val bg = profile.background
+    val bgThumb = rememberCroppedMediaThumbnail(media = bg.media, maxEdge = 160)
 
     var showAddModelDialog by remember { mutableStateOf(false) }
-    var feedbackText by remember { mutableStateOf<String?>(null) }
-    var feedbackIsError by remember { mutableStateOf(false) }
+    var showDestructiveConfirmDialog by remember { mutableStateOf(false) }
+
+    fun showToast(message: String) {
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
 
     val bgPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -111,11 +131,9 @@ fun StylePreviewScreen(
                             ),
                         )
                     }
-                    feedbackIsError = false
-                    feedbackText = "已应用背景：${spec.displayName}"
+                    showToast("已应用背景：${spec.displayName}")
                 }.onFailure { error ->
-                    feedbackIsError = true
-                    feedbackText = error.message ?: "导入背景素材失败"
+                    showToast(error.message ?: "导入背景素材失败")
                 }
             },
         )
@@ -135,7 +153,7 @@ fun StylePreviewScreen(
                 .collapsibleTopInset(scrollBehavior)
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             contentPadding = contentPadding,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 val allProfiles = remember(doc) {
@@ -156,22 +174,10 @@ fun StylePreviewScreen(
                 PopupVisualPreviewCard(
                     resolved = resolvedPreview,
                     fallbackDeviceName = if (profile.isGlobal) "Redmi Buds 8 Pro" else profile.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                 )
-            }
-
-            feedbackText?.let { message ->
-                item {
-                    NexioText(
-                        text = message,
-                        fontSize = 12.sp,
-                        color = if (feedbackIsError) {
-                            SettingsAccents.Red
-                        } else {
-                            NexioTheme.colorScheme.onSurfaceVariantSummary
-                        },
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
             }
 
             item {
@@ -184,6 +190,7 @@ fun StylePreviewScreen(
                         val bgSwitchSummary = when {
                             !profile.isGlobal && profile.inheritGlobal && !bg.enabled -> "继承全局"
                             !profile.isGlobal && profile.inheritGlobal && bg.enabled && !bg.media.isConfigured -> "未选素材 · 恢复原版背景"
+                            !bg.enabled && bg.media.isConfigured -> "已保存素材：${bg.media.displayName.ifBlank { bg.media.assetName }}"
                             else -> null
                         }
                         SwitchPreference(
@@ -196,161 +203,187 @@ fun StylePreviewScreen(
                                 }
                             },
                         )
-                        BasicComponent(
-                            title = "背景素材",
-                            summary = bg.media.summaryLabel(),
-                            startAction = {
-                                SquareAccentIcon(
-                                    accent = SettingsAccents.Purple,
-                                    icon = NexioIcons.Image,
-                                )
-                            },
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        AnimatedVisibility(
+                            visible = bg.enabled,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut(),
                         ) {
-                            FlatTextButton(
-                                text = if (bg.media.isConfigured) "更换素材" else "选择素材",
-                                onClick = { bgPicker.launch(arrayOf("image/*", "video/*")) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.textButtonColorsPrimary(),
-                            )
-                            if (bg.media.isConfigured) {
-                                FlatTextButton(
-                                    text = "裁剪",
-                                    onClick = {
-                                        val targetProfileId = profile.id
-                                        val currentMedia = bg.media
-                                        cropCoordinator.open(
-                                            source = MediaCropSource.FromAsset(
-                                                assetName = currentMedia.assetName,
-                                                displayName = currentMedia.displayName,
-                                                mediaType = currentMedia.type,
-                                            ),
-                                            initialCrop = currentMedia.crop,
-                                            defaultPreset = CropAspectPreset.POPUP_CARD,
-                                            title = "调整背景裁剪",
-                                            onConfirm = { cropRect ->
-                                                popupConfig.updateProfile(targetProfileId) { current ->
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                BasicComponent(
+                                    title = "背景素材",
+                                    summary = bg.media.summaryLabel(),
+                                    startAction = {
+                                        if (bg.media.isConfigured && bgThumb != null) {
+                                            Image(
+                                                bitmap = bgThumb,
+                                                contentDescription = "背景缩略图",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .continuousClip(10.dp)
+                                                    .border(
+                                                        width = 0.5.dp,
+                                                        color = NexioTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                                        shape = ContinuousRoundedRectangle(10.dp),
+                                                    ),
+                                            )
+                                        } else {
+                                            SquareAccentIcon(
+                                                accent = SettingsAccents.Purple,
+                                                icon = NexioIcons.Image,
+                                            )
+                                        }
+                                    },
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    FlatTextButton(
+                                        text = if (bg.media.isConfigured) "更换素材" else "选择素材",
+                                        onClick = { bgPicker.launch(arrayOf("image/*", "video/*")) },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                                    )
+                                    if (bg.media.isConfigured) {
+                                        FlatTextButton(
+                                            text = "裁剪",
+                                            onClick = {
+                                                val targetProfileId = profile.id
+                                                val currentMedia = bg.media
+                                                cropCoordinator.open(
+                                                    source = MediaCropSource.FromAsset(
+                                                        assetName = currentMedia.assetName,
+                                                        displayName = currentMedia.displayName,
+                                                        mediaType = currentMedia.type,
+                                                    ),
+                                                    initialCrop = currentMedia.crop,
+                                                    defaultPreset = CropAspectPreset.POPUP_CARD,
+                                                    title = "调整背景裁剪",
+                                                    onConfirm = { cropRect ->
+                                                        popupConfig.updateProfile(targetProfileId) { current ->
+                                                            current.copy(
+                                                                background = current.background.copy(
+                                                                    enabled = true,
+                                                                    media = current.background.media.copy(crop = cropRect),
+                                                                ),
+                                                            )
+                                                        }
+                                                        showToast("已更新裁剪区域：${cropRect.summaryLabel()}")
+                                                    },
+                                                )
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(),
+                                        )
+                                        FlatTextButton(
+                                            text = "清除",
+                                            onClick = {
+                                                popupConfig.updateProfile(profile.id) { current ->
                                                     current.copy(
                                                         background = current.background.copy(
-                                                            enabled = true,
-                                                            media = current.background.media.copy(crop = cropRect),
+                                                            enabled = false,
+                                                            media = PopupMediaSpec(scaleMode = PopupScaleMode.CENTER_CROP),
                                                         ),
                                                     )
                                                 }
-                                                feedbackIsError = false
-                                                feedbackText = "已更新裁剪区域：${cropRect.summaryLabel()}"
+                                                showToast(
+                                                    if (!profile.isGlobal && profile.inheritGlobal) {
+                                                        "已清除当前型号背景，恢复继承全局"
+                                                    } else {
+                                                        "已恢复原生背景"
+                                                    },
+                                                )
+                                            },
+                                            colors = ButtonDefaults.textButtonColors(),
+                                        )
+                                    }
+                                }
+                                AnimatedVisibility(
+                                    visible = bg.media.isConfigured,
+                                    enter = expandVertically() + fadeIn(),
+                                    exit = shrinkVertically() + fadeOut(),
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        OverlayDropdownMenu(
+                                            title = "背景缩放",
+                                            summary = null,
+                                            entry = DropdownEntry(
+                                                items = PopupScaleMode.entries.map { mode ->
+                                                    DropdownItem(
+                                                        text = mode.label,
+                                                        selected = mode == bg.media.scaleMode,
+                                                        onClick = {
+                                                            popupConfig.updateProfile(profile.id) { current ->
+                                                                current.copy(
+                                                                    background = current.background.copy(
+                                                                        media = current.background.media.copy(scaleMode = mode),
+                                                                    ),
+                                                                )
+                                                            }
+                                                        },
+                                                    )
+                                                },
+                                            ),
+                                            liquidGlassBackdrop = backdrop,
+                                        )
+                                        OverlayDropdownMenu(
+                                            title = "文字色调",
+                                            summary = null,
+                                            entry = DropdownEntry(
+                                                items = PopupForegroundTone.entries.map { tone ->
+                                                    DropdownItem(
+                                                        text = tone.label,
+                                                        selected = tone == bg.foregroundTone,
+                                                        onClick = {
+                                                            popupConfig.updateProfile(profile.id) { current ->
+                                                                current.copy(
+                                                                    background = current.background.copy(foregroundTone = tone),
+                                                                )
+                                                            }
+                                                        },
+                                                    )
+                                                },
+                                            ),
+                                            liquidGlassBackdrop = backdrop,
+                                        )
+                                        BasicComponent(
+                                            title = "背景不透明度",
+                                            summary = "${(bg.alpha * 100f).roundToInt()}%",
+                                            bottomAction = {
+                                                Slider(
+                                                    value = bg.alpha,
+                                                    onValueChange = { value ->
+                                                        popupConfig.updateProfile(profile.id) { current ->
+                                                            current.copy(background = current.background.copy(alpha = value))
+                                                        }
+                                                    },
+                                                    valueRange = 0.15f..1.0f,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                )
                                             },
                                         )
-                                    },
-                                    colors = ButtonDefaults.textButtonColors(),
-                                )
-                                FlatTextButton(
-                                    text = "清除",
-                                    onClick = {
-                                        popupConfig.updateProfile(profile.id) { current ->
-                                            current.copy(
-                                                background = current.background.copy(
-                                                    enabled = false,
-                                                    media = PopupMediaSpec(scaleMode = PopupScaleMode.CENTER_CROP),
-                                                ),
-                                            )
-                                        }
-                                        feedbackIsError = false
-                                        feedbackText = if (!profile.isGlobal && profile.inheritGlobal) {
-                                            "已清除当前型号背景，恢复继承全局"
-                                        } else {
-                                            "已恢复原生背景"
-                                        }
-                                    },
-                                    colors = ButtonDefaults.textButtonColors(),
-                                )
+                                        BasicComponent(
+                                            title = "暗化遮罩",
+                                            summary = "${(bg.scrimAlpha * 100f).roundToInt()}%",
+                                            bottomAction = {
+                                                Slider(
+                                                    value = bg.scrimAlpha,
+                                                    onValueChange = { value ->
+                                                        popupConfig.updateProfile(profile.id) { current ->
+                                                            current.copy(background = current.background.copy(scrimAlpha = value))
+                                                        }
+                                                    },
+                                                    valueRange = 0.0f..0.80f,
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
-                        OverlayDropdownMenu(
-                            title = "背景缩放",
-                            summary = null,
-                            enabled = bg.media.isConfigured,
-                            entry = DropdownEntry(
-                                items = PopupScaleMode.entries.map { mode ->
-                                    DropdownItem(
-                                        text = mode.label,
-                                        selected = mode == bg.media.scaleMode,
-                                        onClick = {
-                                            popupConfig.updateProfile(profile.id) { current ->
-                                                current.copy(
-                                                    background = current.background.copy(
-                                                        media = current.background.media.copy(scaleMode = mode),
-                                                    ),
-                                                )
-                                            }
-                                        },
-                                    )
-                                },
-                            ),
-                            liquidGlassBackdrop = backdrop,
-                        )
-                        OverlayDropdownMenu(
-                            title = "文字色调",
-                            summary = null,
-                            enabled = bg.isActive,
-                            entry = DropdownEntry(
-                                items = PopupForegroundTone.entries.map { tone ->
-                                    DropdownItem(
-                                        text = tone.label,
-                                        selected = tone == bg.foregroundTone,
-                                        onClick = {
-                                            popupConfig.updateProfile(profile.id) { current ->
-                                                current.copy(
-                                                    background = current.background.copy(foregroundTone = tone),
-                                                )
-                                            }
-                                        },
-                                    )
-                                },
-                            ),
-                            liquidGlassBackdrop = backdrop,
-                        )
-                        BasicComponent(
-                            title = "背景不透明度",
-                            summary = "${(bg.alpha * 100f).roundToInt()}%",
-                            enabled = bg.isActive,
-                            bottomAction = {
-                                Slider(
-                                    value = bg.alpha,
-                                    onValueChange = { value ->
-                                        popupConfig.updateProfile(profile.id) { current ->
-                                            current.copy(background = current.background.copy(alpha = value))
-                                        }
-                                    },
-                                    valueRange = 0.15f..1.0f,
-                                    enabled = bg.isActive,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            },
-                        )
-                        BasicComponent(
-                            title = "暗化遮罩",
-                            summary = "${(bg.scrimAlpha * 100f).roundToInt()}%",
-                            enabled = bg.isActive,
-                            bottomAction = {
-                                Slider(
-                                    value = bg.scrimAlpha,
-                                    onValueChange = { value ->
-                                        popupConfig.updateProfile(profile.id) { current ->
-                                            current.copy(background = current.background.copy(scrimAlpha = value))
-                                        }
-                                    },
-                                    valueRange = 0.0f..0.80f,
-                                    enabled = bg.isActive,
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                            },
-                        )
                     }
                 }
             }
@@ -386,8 +419,7 @@ fun StylePreviewScreen(
                                         popupConfig.updateProfile(profile.id) { current ->
                                             current.copy(buttonStyle = style)
                                         }
-                                        feedbackIsError = false
-                                        feedbackText = "已切换按钮材质：${style.label}"
+                                        showToast("已切换按钮材质：${style.label}")
                                     },
                                 )
                             },
@@ -499,18 +531,7 @@ fun StylePreviewScreen(
                         }
                         FlatTextButton(
                             text = if (profile.isGlobal) "重置为原版" else "删除当前型号方案",
-                            onClick = {
-                                if (profile.isGlobal) {
-                                    popupConfig.resetProfile(profile.id)
-                                    feedbackIsError = false
-                                    feedbackText = "已重置全局方案"
-                                } else {
-                                    val deletedName = profile.name
-                                    popupConfig.deleteDeviceProfile(profile.id)
-                                    feedbackIsError = false
-                                    feedbackText = "已删除型号方案：$deletedName"
-                                }
-                            },
+                            onClick = { showDestructiveConfirmDialog = true },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -527,11 +548,60 @@ fun StylePreviewScreen(
             onDismiss = { showAddModelDialog = false },
             onConfirm = { id, name ->
                 val created = popupConfig.ensureDeviceProfile(id, name)
-                feedbackIsError = false
-                feedbackText = "已切换到 ${created.name} (${created.id})"
+                showToast("已切换到 ${created.name} (${created.id})")
                 showAddModelDialog = false
             },
         )
+
+        OverlayDialog(
+            show = showDestructiveConfirmDialog,
+            title = if (profile.isGlobal) "重置全局方案" else "删除型号方案",
+            liquidGlassBackdrop = backdrop,
+            onDismissRequest = { showDestructiveConfirmDialog = false },
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                NexioText(
+                    text = if (profile.isGlobal) {
+                        "将清空全局默认方案的自定义背景、按钮材质及全部阶段配置，恢复为系统原版样式。"
+                    } else {
+                        "将删除「${profile.name} (${profile.id})」的全部独立自定义配置，之后该型号将回退使用全局默认方案。"
+                    },
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = NexioTheme.colorScheme.onSurfaceVariantSummary,
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    FlatTextButton(
+                        text = "取消",
+                        onClick = { showDestructiveConfirmDialog = false },
+                        colors = ButtonDefaults.textButtonColors(),
+                        modifier = Modifier.weight(1f),
+                    )
+                    FlatTextButton(
+                        text = if (profile.isGlobal) "确认重置" else "确认删除",
+                        onClick = {
+                            showDestructiveConfirmDialog = false
+                            if (profile.isGlobal) {
+                                popupConfig.resetProfile(profile.id)
+                                showToast("已重置全局方案")
+                            } else {
+                                val deletedName = profile.name
+                                popupConfig.deleteDeviceProfile(profile.id)
+                                showToast("已删除型号方案：$deletedName")
+                            }
+                        },
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
     }
 }
 
